@@ -85,6 +85,11 @@ struct CargoWasmPackProfiles {
         deserialize_with = "CargoWasmPackProfile::deserialize_profiling"
     )]
     profiling: CargoWasmPackProfile,
+    #[serde(
+        default = "CargoWasmPackProfile::default_profiling",
+        deserialize_with = "CargoWasmPackProfile::deserialize_profile"
+    )]
+    profile: CargoWasmPackProfile,
 }
 
 impl Default for CargoWasmPackProfiles {
@@ -93,6 +98,7 @@ impl Default for CargoWasmPackProfiles {
             dev: CargoWasmPackProfile::default_dev(),
             release: CargoWasmPackProfile::default_release(),
             profiling: CargoWasmPackProfile::default_profiling(),
+            profile: CargoWasmPackProfile::default_profile(),
         }
     }
 }
@@ -304,6 +310,17 @@ impl CargoWasmPackProfile {
         }
     }
 
+    fn default_profile() -> Self {
+        CargoWasmPackProfile {
+            wasm_bindgen: CargoWasmPackProfileWasmBindgen {
+                debug_js_glue: Some(false),
+                demangle_name_section: Some(true),
+                dwarf_debug_info: Some(false),
+            },
+            wasm_opt: Some(CargoWasmPackProfileWasmOpt::Enabled(true)),
+        }
+    }
+
     fn deserialize_dev<'de, D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
@@ -328,6 +345,15 @@ impl CargoWasmPackProfile {
     {
         let mut profile = <Option<Self>>::deserialize(deserializer)?.unwrap_or_default();
         profile.update_with_defaults(&Self::default_profiling());
+        Ok(profile)
+    }
+
+    fn deserialize_profile<'de, D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let mut profile = <Option<Self>>::deserialize(deserializer)?.unwrap_or_default();
+        profile.update_with_defaults(&Self::default_profile());
         Ok(profile)
     }
 
@@ -489,6 +515,9 @@ impl CrateData {
             BuildProfile::Dev => &self.manifest.package.metadata.wasm_pack.profile.dev,
             BuildProfile::Profiling => &self.manifest.package.metadata.wasm_pack.profile.profiling,
             BuildProfile::Release => &self.manifest.package.metadata.wasm_pack.profile.release,
+            BuildProfile::Profile(_) => {
+                &self.manifest.package.metadata.wasm_pack.profile.profile
+            }
         }
     }
 

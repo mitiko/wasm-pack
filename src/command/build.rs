@@ -98,7 +98,7 @@ impl FromStr for Target {
 
 /// The build profile controls whether optimizations, debug info, and assertions
 /// are enabled or disabled.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub enum BuildProfile {
     /// Enable assertions and debug info. Disable optimizations.
     Dev,
@@ -106,6 +106,8 @@ pub enum BuildProfile {
     Release,
     /// Enable optimizations and debug info. Disable assertions.
     Profiling,
+    /// Enable custom user defined profile settings.
+    Profile(String),
 }
 
 /// Everything required to configure and run the `wasm-pack build` command.
@@ -140,6 +142,10 @@ pub struct BuildOptions {
     #[clap(long = "target", short = 't', default_value = "bundler")]
     /// Sets the target environment. [possible values: bundler, nodejs, web, no-modules]
     pub target: Target,
+
+    #[clap(long = "profile")]
+    /// Sets the custom user defined profile.
+    pub profile: Option<String>,
 
     #[clap(long = "debug")]
     /// Deprecated. Renamed to `--dev`.
@@ -184,6 +190,7 @@ impl Default for BuildOptions {
             weak_refs: false,
             reference_types: false,
             target: Target::default(),
+            profile: None,
             debug: false,
             dev: false,
             no_pack: false,
@@ -214,13 +221,14 @@ impl Build {
         let out_dir = crate_path.join(PathBuf::from(build_opts.out_dir));
 
         let dev = build_opts.dev || build_opts.debug;
-        let profile = match (dev, build_opts.release, build_opts.profiling) {
-            (false, false, false) | (false, true, false) => BuildProfile::Release,
-            (true, false, false) => BuildProfile::Dev,
-            (false, false, true) => BuildProfile::Profiling,
+        let profile = match (dev, build_opts.release, build_opts.profiling, build_opts.profile.clone()) {
+            (false, false, false, None) | (false, true, false, None) => BuildProfile::Release,
+            (true, false, false, None) => BuildProfile::Dev,
+            (false, false, true, None) => BuildProfile::Profiling,
+            (_, _, _, Some(profile)) => BuildProfile::Profile(profile),
             // Unfortunately, `clap` doesn't expose clap's `conflicts_with`
             // functionality yet, so we have to implement it ourselves.
-            _ => bail!("Can only supply one of the --dev, --release, or --profiling flags"),
+            _ => bail!("Can only supply a --dev, --release, or --profiling flag, or a --profile flag with a custom user defined profile."),
         };
 
         Ok(Build {
@@ -340,7 +348,7 @@ impl Build {
 
     fn step_build_wasm(&mut self) -> Result<()> {
         info!("Building wasm...");
-        build::cargo_build_wasm(&self.crate_path, self.profile, &self.extra_options)?;
+        build::cargo_build_wasm(&self.crate_path, self.profile.clone(), &self.extra_options)?;
 
         info!(
             "wasm built at {:#?}.",
@@ -415,7 +423,7 @@ impl Build {
             self.weak_refs,
             self.reference_types,
             self.target,
-            self.profile,
+            self.profile.clone(),
             &self.extra_options,
         )?;
         info!("wasm bindings were built at {:#?}.", &self.out_dir);
@@ -425,7 +433,7 @@ impl Build {
     fn step_run_wasm_opt(&mut self) -> Result<()> {
         let mut args = match self
             .crate_data
-            .configured_profile(self.profile)
+            .configured_profile(self.profile.clone())
             .wasm_opt_args()
         {
             Some(args) => args,
